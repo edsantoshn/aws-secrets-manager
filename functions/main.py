@@ -8,6 +8,7 @@ import boto3
 
 
 REGION = os.getenv('REGION', 'us-west-2')
+CERT_PATH_TEMPLATE = '/tmp/cert/{}/'
 
 
 session = boto3.session.Session(
@@ -17,31 +18,32 @@ session = boto3.session.Session(
 secretsmanager_client = session.client('secretsmanager')
 
 
+def decode_and_save_file(data: str, file_path: str):
+    try:
+        with open(file_path, 'wb') as file:
+            file.write(base64.standard_b64decode(data))
+    except Exception as e:
+        logging.exception('Error trying to save the cert %s: %s', file_path, e)
+        raise
+
+
 def retrieve_credentials(credentials:dict, cert_name:str):
     try:
-        if type(credentials) == str:
+        if isinstance(credentials, str):
             credentials = json.loads(credentials)
 
         if 'SecretString' in credentials:
             credentials = credentials['SecretString']
 
         path_folder_cert = f'/tmp/cert/{cert_name}'
-        path_cer = path_folder_cert + '/crt.crt'
-        path_key = path_folder_cert + '/key.key'
-        path_pfx = path_folder_cert + '/pfx.pfx'
+        path_cer = os.path.join(path_folder_cert, '/crt.crt')
+        path_key = os.path.join(path_folder_cert, '/key.key')
+        path_pfx = os.path.join(path_folder_cert, '/pfx.pfx')
 
         os.makedirs(path_folder_cert, exist_ok=True)
-        with open(path_cer, 'wb') as cer_file:
-            decode = base64.standard_b64decode(credentials["crt"])
-            cer_file.write(decode)
-
-        with open(path_key, 'wb') as key_file:
-            decode = base64.standard_b64decode(credentials["key"])
-            key_file.write(decode)
-
-        with open(path_pfx, 'wb') as pfx_file:
-            decode = base64.standard_b64decode(credentials["pfx"])
-            pfx_file.write(decode)
+        decode_and_save_file(credentials["crt"], path_cer)
+        decode_and_save_file(credentials["key"], path_key)
+        decode_and_save_file(credentials["pfx"], path_pfx)
 
         return {
             "crt": path_cer,
@@ -56,16 +58,19 @@ def retrieve_credentials(credentials:dict, cert_name:str):
 
 def verify_crt_files(cert_name:str):
     try:
-        cert_file_path_crt = f'./tmp/cert/{cert_name.lower()}/crt.crt'
-        cert_file_path_key = f'./tmp/cert/{cert_name.lower()}/key.key'
-        cert_file_path_pfx = f'./tmp/cert/{cert_name.lower()}/pfx.pfx'
-        if not os.path.exists(cert_file_path_crt) or not os.path.exists(cert_file_path_key) or not os.path.exists(cert_file_path_pfx):
+        cert_folder = CERT_PATH_TEMPLATE.format(cert_name.lower())
+        paths = {
+            "crt": os.path.join(cert_folder, 'crt.crt'),
+            "key": os.path.join(cert_folder, 'key.key'),
+            "pfx": os.path.join(cert_folder, 'pfx.pfx')
+        }
+
+        if not all(os.path.exists(path) for path in paths.values()):
             credentials = secretsmanager_client.get_secret_value(SecretId='your-secret-name')
             credentials = json.loads(credentials['SecretString'])
-            path_file = retrieve_credentials(credentials, cert_name.lower())
-        else:
-            path_file = {"crt":cert_file_path_crt, "key":cert_file_path_key, "pfx":cert_file_path_pfx}
-        return path_file
+            return retrieve_credentials(credentials, cert_name.lower())
+
+        return paths
     except Exception as exception:
         logging.exception('verifying crt files, %s', exception)
         return None
