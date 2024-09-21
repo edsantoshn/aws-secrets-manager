@@ -1,0 +1,14 @@
+Resources:
+  RetrieveSecretsManagerPolicy:
+    Properties:
+    ManagedPolicyName: RetrieveSecretsManagerPolicy
+    Description: Lambda policy to allow access to SSM
+    Path: /
+    PolicyDocument:
+      Version: 2012-10-17
+      Statement:
+        - Effect: Allow
+          Action:
+            - secretsmanager:DescribeSecret
+            - secretsmanager:GetSecretValue
+          Resource: '*'
